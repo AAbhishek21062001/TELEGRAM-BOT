@@ -67,6 +67,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def process_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, contents, status_msg):
     try:
         # Naya code (ise daal do)
+response = ai_client.models.generate_content(
+    model="gemini-1.5-flash",
             contents=contents,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json"
