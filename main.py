@@ -1,6 +1,8 @@
 import os
 import json
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from io import BytesIO
 from PIL import Image
 from google import genai
@@ -13,7 +15,6 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from aiohttp import web
 
 # 1. Logging
 logging.basicConfig(
@@ -31,25 +32,25 @@ if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
 
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# 3. Dummy Web Server for Render
-async def handle_ping(request):
-    return web.Response(text="Bot is running!")
+# 3. Simple Built-in Web Server for Render Free Tier (No external library needed)
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is healthy and running!")
 
-async def start_dummy_server():
-    app = web.Application()
-    app.router.add_get("/", handle_ping)
-    runner = web.AppRunner(app)
-    await runner.setup()
+def run_health_server():
     port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    logger.info(f"Health server running on port {port}")
+    server.serve_forever()
 
-# 4. Prompt
+# 4. AI Prompt Template
 PROMPT_TEXT = """
-You are a quiz generator. Create exactly 1 multiple-choice question (MCQ) based on the input.
-You must return ONLY a valid JSON object (no markdown tags, no code fences):
+Read the provided content and create exactly 1 Multiple Choice Question (MCQ).
+Return ONLY a valid JSON object (no markdown formatting, no code blocks):
 {
-  "question": "Question text here (max 250 chars)",
+  "question": "Question text (max 250 chars)",
   "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
   "correct_option_id": 0,
   "explanation": "Short explanation (max 150 chars)"
@@ -57,11 +58,11 @@ You must return ONLY a valid JSON object (no markdown tags, no code fences):
 Rules:
 - options must have exactly 4 items, each under 90 characters.
 - correct_option_id must be 0, 1, 2, or 3.
-- Maintain the same language as the input content.
+- Use the same language as the input text/image.
 """
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 फोटो या टेक्स्ट भेजें, मैं उसका MCQ क्विज बना दूंगा।")
+    await update.message.reply_text("👋 नमस्ते! मुझे कोई भी फोटो या टेक्स्ट भेजें, मैं तुरंत उसका Quiz Poll बना दूंगा।")
 
 async def process_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, contents, status_msg):
     try:
@@ -74,7 +75,6 @@ async def process_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, conte
         )
 
         raw_text = response.text.strip()
-        # Clean potential markdown fences
         if raw_text.startswith("```"):
             raw_text = raw_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
@@ -127,12 +127,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await process_quiz(update, context, [update.message.text, PROMPT_TEXT], status_msg)
 
 def main():
+    # Start the dummy health check server on a background thread for Render
+    server_thread = threading.Thread(target=run_health_server, daemon=True)
+    server_thread.start()
+
+    # Start Telegram Bot
     bot_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     bot_app.add_handler(CommandHandler("start", start_command))
     bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    bot_app.job_queue.run_once(lambda ctx: start_dummy_server(), when=0)
+    logger.info("Bot is running...")
     bot_app.run_polling()
 
 if __name__ == "__main__":
