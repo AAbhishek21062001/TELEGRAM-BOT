@@ -16,7 +16,7 @@ from telegram.ext import (
     filters,
 )
 
-# 1. Logging
+# 1. Logging Setup
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -32,7 +32,7 @@ if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
 
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# 3. Simple Built-in Web Server for Render Free Tier (No external library needed)
+# 3. Simple Built-in Web Server for Render
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -45,7 +45,7 @@ def run_health_server():
     logger.info(f"Health server running on port {port}")
     server.serve_forever()
 
-# 4. AI Prompt Template
+# 4. Prompt Template
 PROMPT_TEXT = """
 Read the provided content and create exactly 1 Multiple Choice Question (MCQ).
 Return ONLY a valid JSON object (no markdown formatting, no code blocks):
@@ -66,9 +66,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def process_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, contents, status_msg):
     try:
-        # Naya code (ise daal do)
-response = ai_client.models.generate_content(
-    model="gemini-1.5-flash",
+        response = ai_client.models.generate_content(
+            model="gemini-2.0-flash",
             contents=contents,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json"
@@ -128,11 +127,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await process_quiz(update, context, [update.message.text, PROMPT_TEXT], status_msg)
 
 def main():
-    # Start the dummy health check server on a background thread for Render
     server_thread = threading.Thread(target=run_health_server, daemon=True)
     server_thread.start()
 
-    # Start Telegram Bot
     bot_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     bot_app.add_handler(CommandHandler("start", start_command))
     bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
